@@ -25,7 +25,14 @@ COPY backend/ ./
 COPY frontend/ ./frontend/
 RUN chown -R eip:eip /app
 
-USER eip
+# NOTE: stay root here (no `USER eip`) — a Railway (or any platform) volume
+# mounted at /data at container-start time replaces whatever ownership the
+# image set at build time, remounting it as root:root. If we switch to the
+# eip user before that mount happens, sqlite3 can't create the DB file there
+# ("unable to open database file"). The entrypoint below re-chowns /data
+# every start (cheap, idempotent) and then drops privileges to eip via `su`
+# before actually running the app, so the app process itself is still
+# non-root — only this one bootstrap line runs as root.
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]
+CMD ["sh", "-c", "chown -R eip:eip /data && exec su -s /bin/sh eip -c 'uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1'"]
